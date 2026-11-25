@@ -1,0 +1,24 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>crops</title>
+<body>
+<script>
+// Dev helper: saves zoomed crops. ?jobs=[["img url", x, y, w, h, zoom, "out.png"], ...]
+// x/y/w/h are in the image's native pixels.
+const save = (path, blob) => fetch('/__save?path=' + encodeURIComponent(path), { method: 'POST', body: blob });
+const load = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+(async () => {
+  try {
+    const jobs = JSON.parse(new URLSearchParams(location.search).get('jobs'));
+    for (const [src, x, y, w, h, z, out, bg] of jobs) {
+      const img = await load(src);
+      const c = document.createElement('canvas'); c.width = w * z; c.height = h * z;
+      const cx = c.getContext('2d'); cx.imageSmoothingEnabled = z < 1;
+      if (bg) { cx.fillStyle = bg; cx.fillRect(0, 0, c.width, c.height); }
+      cx.drawImage(img, x, y, w, h, 0, 0, w * z, h * z);
+      await save(out, await new Promise(r => c.toBlob(r)));
+    }
+  } catch (e) { await fetch('/__log', { method: 'POST', body: 'ERR ' + e.stack }); }
+  await fetch('/__quit', { method: 'POST' });
+})();
+</script>

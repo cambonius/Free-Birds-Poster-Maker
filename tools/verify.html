@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Verify captions</title>
+<style>
+@font-face { font-family: FBCaption; src: url("../Fonts/American Purpose STRIPE 1 Normal.ttf") format("truetype"); }
+</style>
+<body>
+<p>Rendering test captions… (run via tools\verify.ps1)</p>
+<script src="../app/posters.js"></script>
+<script src="../Captionless Posters/masks/mask-data.js"></script>
+<script src="../app/caption-engine.js"></script>
+<script src="../app/assets.js"></script>
+<script>
+// Renders every poster with its original caption, a long caption and a single
+// word; saves comparisons and logs layout/overlap numbers.
+const log = (m) => fetch('/__log', { method: 'POST', body: String(m) });
+const save = (path, blob) => fetch('/__save?path=' + encodeURIComponent(path), { method: 'POST', body: blob });
+const toBlob = (c) => new Promise(r => c.toBlob(r, 'image/png'));
+const LONG = 'THIS THANKSGIVING THE TURKEYS ARE FIGHTING BACK FOR REAL';
+const SHORT = 'GOBBLE';
+const params = new URLSearchParams(location.search);
+const extra = params.get('text');
+
+(async () => {
+  try {
+    await CaptionEngine.init();
+    for (const poster of FB_CONFIG.POSTERS) {
+      if (params.get('only') && params.get('only') !== String(poster.id)) continue;
+      const A = await FBAssets.loadPoster(poster, '../');
+      await log(`poster ${poster.id}: ${A.W}x${A.H} baseline hidden ${(A.baseline.ov * 100).toFixed(1)}% worst word ${(A.baseline.worst * 100).toFixed(1)}% shadow ${A.shadow}`);
+      const cases = extra ? [['custom', extra]] : [['original', poster.original], ['long', LONG], ['short', SHORT]];
+      for (const [name, text] of cases) {
+        const t0 = performance.now();
+        const r = CaptionEngine.fit(text, poster, A.W, A.H, A.mask, A.baseline);
+        const ms = performance.now() - t0;
+        const c = document.createElement('canvas'); c.width = A.W; c.height = A.H;
+        CaptionEngine.render(c.getContext('2d'), A.img, A.fg, r.layout, A.shadow);
+        const ref = 2000 / A.H;
+        const desc = r.layout.lines.map(l => `${l.text}=${Math.round(l.h * ref)}`).join(' / ');
+        const bb = r.layout.bbox;
+        await log(`  ${name}: [${desc}] hidden ${(r.overlap * 100).toFixed(1)}% (target ${((r.target || 0) * 100).toFixed(1)}%) worst word ${(r.worstWord * 100).toFixed(1)}% (max ${((r.wordTarget || 0) * 100).toFixed(1)}%) shrinkSteps ${r.steps} hint ${r.hidden} small ${r.small} bbox x ${Math.round(bb.x0 * 1395 / A.W)}-${Math.round(bb.x1 * 1395 / A.W)} y ${Math.round(bb.y0 * ref)}-${Math.round(bb.y1 * ref)} (${ms.toFixed(0)} ms)`);
+        if (params.get('perf')) {
+          // warm timing of one keystroke's work: fit + full-resolution render
+          const times = [];
+          CaptionEngine.prof.layout = CaptionEngine.prof.map = CaptionEngine.prof.cover = 0;
+          for (let k = 0; k < 15; k++) {
+            const t = performance.now();
+            const rr = CaptionEngine.fit(text, poster, A.W, A.H, A.mask, A.baseline);
+            CaptionEngine.render(c.getContext('2d'), A.img, A.fg, rr.layout, A.shadow);
+            c.getContext('2d').getImageData(0, 0, 1, 1); // flush drawing
+            times.push(performance.now() - t);
+          }
+          times.sort((x, y) => x - y);
+          const P = CaptionEngine.prof;
+          await log(`    perf ${name}: median ${times[7].toFixed(1)} ms, max ${times[14].toFixed(1)} ms | per run: layout ${(P.layout / 15).toFixed(1)} map ${(P.map / 15).toFixed(1)} cover ${(P.cover / 15).toFixed(1)}`);
+          P.layout = P.map = P.cover = 0;
+          continue;
+        }
+        await save(`${poster.id}-${name}.png`, await toBlob(c));
+        if (name === 'original') {
+          // side-by-side with the original poster, both at 800px tall
+          const orig = await FBAssets.loadImage(`../Original Posters/freebirds-${poster.id}.webp`);
+          const h = 800, w1 = Math.round(orig.naturalWidth * h / orig.naturalHeight), w2 = Math.round(A.W * h / A.H);
+          const cmp = document.createElement('canvas'); cmp.width = w1 + w2 + 16; cmp.height = h;
+          const x = cmp.getContext('2d'); x.fillStyle = '#111'; x.fillRect(0, 0, cmp.width, h);
+          x.imageSmoothingQuality = 'high';
+          x.drawImage(orig, 0, 0, w1, h); x.drawImage(c, w1 + 16, 0, w2, h);
+          await save(`${poster.id}-compare.png`, await toBlob(cmp));
+        }
+      }
+    }
+    if (!extra) {
+      // Self-test of the "too hidden even at minimum size" path: a mask that
+      // covers everything can never pass, so fit() must stop at the minimum
+      // letter size, keep the caption inside its area, and raise the hint.
+      for (const poster of FB_CONFIG.POSTERS) {
+        if (params.get('only') && params.get('only') !== String(poster.id)) continue;
+        const A = await FBAssets.loadPoster(poster, '../');
+        const full = { ...A.mask, data: new Uint8Array(A.mask.data.length).fill(255) };
+        const r = CaptionEngine.fit(poster.original, poster, A.W, A.H, full, A.baseline);
+        const minPx = FB_CONFIG.STYLE.minLetter * A.H;
+        const smallest = Math.min(...r.layout.lines.filter(l => !l.small).map(l => l.h));
+        const box = r.layout.area.box, bb = r.layout.bbox;
+        const inside = bb.x0 >= box.x0 - 1 && bb.x1 <= box.x1 + 1 && bb.y0 >= box.y0 - 1 && bb.y1 <= box.y1 + 1;
+        const ok = r.hidden && smallest >= minPx - 0.5 && smallest < minPx / 0.94 + 0.5 && inside;
+        await log(`selftest poster ${poster.id}: hint=${r.hidden} smallest line ${Math.round(smallest * 2000 / A.H)}px (min 60) inside area=${inside} -> ${ok ? 'PASS' : 'FAIL'}`);
+      }
+    }
+  } catch (e) { await log('ERR ' + e.stack); }
+  await fetch('/__quit', { method: 'POST' });
+})();
+</script>

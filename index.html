@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free Birds caption maker</title>
+  <link rel="preload" href="Fonts/American Purpose STRIPE 1 Normal.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <aside class="panel">
+      <h1>Free Birds caption maker</h1>
+
+      <section>
+        <h2 id="poster-label">Poster</h2>
+        <div class="thumbs" id="thumbs" role="radiogroup" aria-labelledby="poster-label"></div>
+      </section>
+
+      <section>
+        <label for="caption" class="h2">Caption</label>
+        <textarea id="caption" rows="4" spellcheck="false" autocomplete="off"
+          placeholder="Type a caption…"></textarea>
+        <p class="hint" id="hint" role="status" aria-live="polite"></p>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="download" class="primary">Download PNG</button>
+        <button type="button" id="restore" class="secondary">Reset</button>
+      </div>
+      <p class="meta" id="meta"></p>
+    </aside>
+
+    <section class="stage" aria-label="Poster preview">
+      <canvas id="poster" width="1395" height="2000" aria-label="Captioned poster"></canvas>
+    </section>
+  </main>
+
+  <script src="app/posters.js"></script>
+  <script src="Captionless Posters/masks/mask-data.js"></script>
+  <script src="app/caption-engine.js"></script>
+  <script src="app/assets.js"></script>
+  <script src="app/main.js"></script>
+</body>
+</html>
